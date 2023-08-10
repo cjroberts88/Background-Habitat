@@ -1,0 +1,862 @@
+---
+title: "Underwater photographs - background data"
+output: html_notebook
+---
+
+
+```{r}
+library(tidyverse)
+library(mvabund)
+library(lme4)
+library(ggplot2)
+library(ggthemes)
+library(ggpubr)
+```
+
+
+```{r}
+photoquads_raw <- read.csv("data/transect_data_clean.csv") 
+photoquads_consol_wide_PA <- photoquads_raw
+
+diver_raw <- read.csv("data/diver_data_clean_v2.csv") 
+diver_inc_consol <- diver_raw
+```
+
+
+```{r}
+diver_inc_consol_sel <- diver_inc_consol %>% select(c(Location, Period, Algae_Encrusting:Coral))
+
+diver_inc_consol_sel$Rep <- paste(diver_inc_consol$RelativePath,diver_inc_consol$File, sep = "_")
+
+diver_inc_consol_sel$Source <- "Photos"
+
+photoquads_consol_sel <- photoquads_consol_wide_PA %>% ungroup() %>% select(c(-Si_Tr, -Loc_Abr, -Transect))
+
+photoquads_consol_sel$Source <- "Surveys"
+
+photoquads_consol_sel <-  rename(photoquads_consol_sel, Rep=Quadrat)
+
+
+photo_survey_inc_PA_allreps <- full_join(photoquads_consol_sel, diver_inc_consol_sel)
+
+photo_survey_inc_PA_allreps$Loc_Sou_Per <- paste(photo_survey_inc_PA_allreps$Location, photo_survey_inc_PA_allreps$Source, photo_survey_inc_PA_allreps$Period, sep = "_")
+
+
+```
+
+
+
+
+
+#Figure 2b: Photoquadrat vs Photograph - Occurence Frequency Mean Difference
+```{r}
+photo_survey_inc_PA_allreps_sel <- photo_survey_inc_PA_allreps %>% select(Location, Period, Source, c(Algae_Encrusting:Coral))
+
+photo_survey_PA_long <- pivot_longer(photo_survey_inc_PA_allreps_sel, c(Algae_Encrusting:Coral), names_to = 'Taxa', values_to = 'Presence')
+
+
+photo_survey_mean_SD <- photo_survey_PA_long %>%
+  group_by(Location, Period,Source, Taxa) %>%
+  summarise(mean=mean(Presence))
+
+photo_survey_mean_SD <- pivot_wider(photo_survey_mean_SD, names_from = Source,
+    values_from = mean)
+
+
+#manual difference calculation
+
+photo_survey_mean_SD$diff <- photo_survey_mean_SD$Photos-photo_survey_mean_SD$Surveys
+
+
+photo_survey_diff_mean_SD <- photo_survey_mean_SD %>%
+  group_by(Location, Taxa) %>%
+  summarise(mean=mean(diff), SE =sd(diff)/(sqrt(n())))
+
+
+    #reordered by abundance
+    
+    habitat_order <- photo_survey_mean_SD %>%
+  group_by(Taxa) %>%
+  summarise(order=mean(Surveys))
+    
+           photo_survey_diff_mean_SD <- left_join(photo_survey_diff_mean_SD, habitat_order)
+
+       photo_survey_diff_mean_SD %>%
+ ggplot(aes(x=reorder(Taxa, order),mean, colour=Taxa,  shape=Location)) + #, group=Period
+  geom_hline(yintercept = c(0), color = "grey70", linetype = 2) +  
+   geom_point(position = position_dodge(0.6), size=2)+
+      xlab("Habitat Categories")+
+            ylab("Mean Difference")+
+  ylim(-.5, .5)+
+geom_errorbar(aes(ymin=mean-SE, ymax=mean+SE),position = position_dodge(0.6), width=.6)+
+  scale_colour_manual(labels=c("Algae_Turf" = "Turf Algae", "Algae_Other" = "Other Algae", "Algae_Encrusting" = "Encrusting Algae", "Algae_Kelp" = "Kelp Algae", "Sponge" = "Sponges", "Ascidian" = "Ascidians", "Coral" = "Corals"), 
+      values = c("#F0655B", "#C18A15","#306B34","#643C04", "#893168","#FFB9B4","#FFA600"))+
+scale_x_discrete(labels=c("Algae_Turf" = "Turf Algae", "Algae_Other" = "Other Algae",
+                              "Algae_Encrusting" = "Encrusting Algae", "Algae_Kelp" = "Kelp Algae", "Sponge" = "Sponges", "Ascidian" = "Ascidians", "Coral" = "Corals"))+
+      theme_classic()+
+                   theme(legend.position = "bottom", 
+                  legend.key.size = unit(0.2, 'cm'), #change legend key size
+               legend.title = element_text(size=8), #change legend title font size
+        legend.text = element_text(size=8))+
+     theme(axis.title.y = element_blank()) + 
+            theme(axis.text = element_text(size = 8)) +
+     theme(axis.title.x = element_text(size = 9)) +
+       ggtitle(expression(atop("Photoquadrats vs. Photographs", atop(italic("<--- More Frequent in Photoquadrats - More Frequent in Photographs--->"), "")))) +
+       theme(plot.title=element_text(size=15, hjust=0.5, face="bold",  vjust=-1))+
+                guides(color = "none")+
+              coord_flip()
+```
+#Figure 2a: Photoquadrat vs Photograph Occurrence frequency linear regression
+```{r}
+
+photo_survey_mean_SD$Taxa <- as.character(photo_survey_mean_SD$Taxa)
+
+photo_survey_mean_SD %>%
+ ggplot(aes(`Photos`,`Surveys`)) + #, group=Period
+         geom_abline(intercept = 0, slope = 1, size = 0.5) +
+         geom_smooth(aes(group=1), method='lm')+
+                  geom_point(aes( colour= Taxa, shape=Location),size=2)+
+      xlab("Photographs Occurence Frequency")+
+            ylab("Photoquadrat Occurence Frequency")+
+  theme_classic()+
+    scale_colour_manual(labels=c("Algae_Turf" = "Turf Algae", "Algae_Other" = "Other Algae", "Algae_Encrusting" = "Encrusting Algae", "Algae_Kelp" = "Kelp Algae", "Sponge" = "Sponges", "Ascidian" = "Ascidians", "Coral" = "Corals"), 
+                       values = c("#F0655B", "#C18A15","#306B34","#643C04", "#893168","#FFB9B4","#FFA600"))+
+    theme(legend.key.size = unit(0.2, 'cm'), #change legend key size
+          legend.position = "bottom",
+               legend.title = element_blank(), #change legend title font size
+        legend.text = element_text(size=8))+
+                   theme(axis.text = element_text(size = 8)) +
+     theme(axis.title = element_text(size = 9)) +
+   guides(shape = "none")
+
+
+```
+
+
+#Figure 3a - Close (<30cm) Photos vs. and wide Photos (>30cm) - Occurence Frequency Mean Difference
+   
+    
+```{r}
+diver_inc_consol <-diver_inc_consol %>% filter(Background == "Yes/Good" | Background == "Ok/Partial") 
+
+diver_inc_consol <- filter(diver_inc_consol, Algae_Encrusting != 0 | Algae_Other != 0| Algae_Kelp != 0| Algae_Turf != 0| Ascidian != 0|Sponge !=0 |  Coral!=0  )
+
+diver_inc_consol_type <- diver_inc_consol %>% select(c(Location, Period, Type, c(Algae_Encrusting:Algae_Other), c(Sponge:Coral)))
+
+
+
+diver_inc_consol_type$Type <- gsub("\\~", "", diver_inc_consol_type$Type)
+diver_inc_consol_type$Type <- gsub("\\(", "", diver_inc_consol_type$Type)
+diver_inc_consol_type$Type <- gsub("\\)", "", diver_inc_consol_type$Type)
+
+
+diver_inc_consol_type$Type <- gsub("Supermacro  <3cm", "Macro", diver_inc_consol_type$Type)
+diver_inc_consol_type$Type <- gsub("Macro 3cm-30cm", "Macro", diver_inc_consol_type$Type)
+diver_inc_consol_type$Type <- gsub("Mid 0.3-1m", "Wide-angle", diver_inc_consol_type$Type)
+diver_inc_consol_type$Type <- gsub("Wide-angle >1m", "Wide-angle", diver_inc_consol_type$Type)
+
+diver_inc_consol_type_long <- pivot_longer(diver_inc_consol_type, c(Algae_Encrusting:Coral), names_to = 'Taxa', values_to = 'Presence')
+
+
+diver_inc_type_mean_SD <- diver_inc_consol_type_long %>%
+  group_by(Location, Period,Type, Taxa) %>%
+  summarise(mean=mean(Presence))
+
+diver_inc_type_mean_SD <- pivot_wider(diver_inc_type_mean_SD, names_from = Type,
+    values_from = mean)
+
+
+#manual difference calculation - Type
+
+diver_inc_type_mean_SD$diff <- diver_inc_type_mean_SD$"Wide-angle"-diver_inc_type_mean_SD$Macro
+
+
+diver_inc_type_mean_SD <- diver_inc_type_mean_SD %>%
+  group_by(Location, Taxa) %>%
+  summarise(mean=mean(diff), SE =sd(diff)/(sqrt(n())))
+
+ diver_inc_type_mean_SD <- left_join(diver_inc_type_mean_SD, habitat_order)
+
+ 
+  
+diver_inc_type_mean_SD %>%
+  ggplot(aes(x=reorder(Taxa, order),mean, colour=Taxa, shape=Location)) + 
+   geom_hline(yintercept = c(0), color = "grey70", linetype = 2) +  
+   geom_point(position = position_dodge(0.6), size=2)+
+   xlab("Habitat Categories")+
+            ylab("Mean Difference")+
+  ylim(-.5, .5)+
+ geom_errorbar(aes(ymin=mean-SE, ymax=mean+SE),position = position_dodge(0.6), width=.6)+
+         scale_colour_manual(labels=c("Algae_Turf" = "Turf Algae", "Algae_Other" = "Other Algae", "Algae_Encrusting" = "Encrusting Algae", "Algae_Kelp" = "Kelp Algae", "Sponge" = "Sponges", "Ascidian" = "Ascidians", "Coral" = "Corals"), 
+                         values = c("#F0655B", "#C18A15","#306B34","#643C04", "#893168","#FFB9B4","#FFA600"))+
+
+  scale_x_discrete(labels=c("Algae_Turf" = "Turf Algae", "Algae_Other" = "Other Algae",
+                              "Algae_Encrusting" = "Encrusting Algae", "Algae_Kelp" = "Kelp Algae", "Sponge" = "Sponges", "Ascidian" = "Ascidians", "Coral" = "Corals"))+
+   theme_classic()+
+  theme(legend.position = "bottom", 
+                  legend.key.size = unit(0.2, 'cm'), #change legend key size
+              legend.title = element_text(size=8), #change legend title font size
+       legend.text = element_text(size=8))+
+            theme(axis.text = element_text(size = 8)) +
+theme(axis.title.y = element_blank()) +
+     theme(axis.title.x = element_text(size = 9)) +  
+        ggtitle(expression(atop("Close Photos vs. Wide Photos", atop(italic("<--- More Frequent in Close Photos - More Frequent in Wide Photos--->"), "")))) +
+       theme(plot.title=element_text(size=15, hjust=0.5, face="bold",  vjust=-1))+
+   guides(colour="none")+
+  coord_flip()
+```
+
+
+#Supp Figure S4a - Photoquadrats vs. Close (<30cm) Photos - Occurence Frequency Mean Difference
+
+```{r}
+diver_inc_consol_type_Macro <- filter (diver_inc_consol_type, Type=="Macro")
+
+diver_inc_consol_type_Macro$Source <- "Photos"
+
+photo_survey_inc_PA_Macro <- full_join(photoquads_consol_sel, diver_inc_consol_type_Macro)
+
+photo_survey_inc_PA_Macro$Loc_Sou_Per <- paste(photo_survey_inc_PA_Macro$Location, photo_survey_inc_PA_Macro$Source, photo_survey_inc_PA_Macro$Period, sep = "_")
+
+photo_survey_inc_PA_Macro_Long <-  photo_survey_inc_PA_Macro %>% pivot_longer(c(Algae_Encrusting:Coral),names_to = 'Taxa', values_to = 'Presence')
+
+
+photo_survey_Macro_mean_SD <- photo_survey_inc_PA_Macro_Long %>%
+  group_by(Location, Period,Source, Taxa) %>%
+  summarise(mean=mean(Presence))
+
+photo_survey_Macro_mean_SD <- pivot_wider(photo_survey_Macro_mean_SD, names_from = Source,     values_from = mean)
+
+
+photo_survey_Macro_mean_SD$diff <- photo_survey_Macro_mean_SD$Photos-photo_survey_Macro_mean_SD$Surveys
+
+
+photo_survey_Macro_mean_SD <- photo_survey_Macro_mean_SD %>%
+  group_by(Location, Taxa) %>%
+  summarise(mean=mean(diff), SE =sd(diff)/(sqrt(n())))
+
+photo_survey_Macro_mean_SD <- left_join(photo_survey_Macro_mean_SD, habitat_order)
+
+
+
+photo_survey_Macro_mean_SD %>%
+  ggplot(aes(x=reorder(Taxa, order),mean, colour=Taxa,shape=Location)) + 
+  geom_hline(yintercept = c(0), color = "grey70", linetype = 2) +  
+  geom_point(position = position_dodge(0.6), size=2)+
+   xlab("Habitat Categories")+
+            ylab("Mean Difference")+
+  ylim(-.47, .47)+
+geom_errorbar(aes(ymin=mean-SE, ymax=mean+SE),position = position_dodge(0.6), width=.6)+
+scale_colour_manual(labels=c("Algae_Turf" = "Turf Algae", "Algae_Other" = "Other Algae", "Algae_Encrusting" = "Encrusting Algae", "Algae_Kelp" = "Kelp Algae", "Sponge" = "Sponges", "Ascidian" = "Ascidians", "Coral" = "Corals"),     values = c("#F0655B", "#C18A15","#306B34","#643C04", "#893168","#FFB9B4","#FFA600"))+
+  scale_x_discrete(labels=c("Algae_Turf" = "Turf Algae", "Algae_Other" = "Other Algae",
+                              "Algae_Encrusting" = "Encrusting Algae", "Algae_Kelp" = "Kelp Algae", "Sponge" = "Sponges", "Ascidian" = "Ascidians", "Coral" = "Corals"))+
+   theme_classic()+
+  theme(legend.position ="none")+
+            theme(axis.text = element_text(size = 8)) +
+  theme(axis.title.y = element_blank()) +
+     theme(axis.title.x = element_text(size = 9)) +  
+        ggtitle(expression(atop("Photoquadrats vs. Close Photographs", atop(italic("<--- More Frequent in Photoquadrats - More Frequent in Close Photos--->"), "")))) +
+       theme(plot.title=element_text(size=15, hjust=0.5, face="bold",  vjust=-1))+
+    guides(colour="none")+
+  coord_flip()
+```
+ 
+#Supp Figure S4b - Photoquadrats vs. Wide (>30cm) Photos - Occurence Frequency Mean Difference
+
+```{r}
+diver_inc_consol_type_Wide <- filter (diver_inc_consol_type, Type=="Wide-angle")
+
+diver_inc_consol_type_Wide$Source <- "Photos"
+
+photo_survey_inc_PA_Wide <- full_join(photoquads_consol_sel, diver_inc_consol_type_Wide)
+
+photo_survey_inc_PA_Wide$Loc_Sou_Per <- paste(photo_survey_inc_PA_Wide$Location, photo_survey_inc_PA_Wide$Source, photo_survey_inc_PA_Wide$Period, sep = "_")
+
+photo_survey_inc_PA_WideAng_Long <-  photo_survey_inc_PA_Wide %>% pivot_longer(c(Algae_Encrusting:Coral),names_to = 'Taxa', values_to = 'Presence')
+
+
+photo_survey_WideAng_mean_SD <- photo_survey_inc_PA_WideAng_Long %>%
+  group_by(Location, Period,Source, Taxa) %>%
+  summarise(mean=mean(Presence))
+
+photo_survey_WideAng_mean_SD <- pivot_wider(photo_survey_WideAng_mean_SD, names_from = Source,
+    values_from = mean)
+
+
+#manual difference calculation
+
+photo_survey_WideAng_mean_SD$diff <- photo_survey_WideAng_mean_SD$Photos-photo_survey_WideAng_mean_SD$Surveys
+
+
+photo_survey_WideAng_mean_SD <- photo_survey_WideAng_mean_SD %>%
+  group_by(Location, Taxa) %>%
+  summarise(mean=mean(diff), SE =sd(diff)/(sqrt(n())))
+
+photo_survey_WideAng_mean_SD <- left_join(photo_survey_WideAng_mean_SD, habitat_order)
+
+
+photo_survey_WideAng_mean_SD %>%
+  ggplot(aes(x=reorder(Taxa, order),mean, colour=Taxa, shape=Location)) + #, group=Period
+  geom_hline(yintercept = c(0), color = "grey70", linetype = 2) +  
+  geom_point(position = position_dodge(0.6), size=2)+
+   xlab("Habitat Categories")+
+            ylab("Mean Difference")+
+  ylim(-.47, .47)+
+ geom_errorbar(aes(ymin=mean-SE, ymax=mean+SE),position = position_dodge(0.6), width=.6)+
+scale_colour_manual(labels=c("Algae_Turf" = "Turf Algae", "Algae_Other" = "Other Algae", "Algae_Encrusting" = "Encrusting Algae", "Algae_Kelp" = "Kelp Algae", "Sponge" = "Sponges", "Ascidian" = "Ascidians", "Coral" = "Corals"),     values = c("#F0655B", "#C18A15","#306B34","#643C04", "#893168","#FFB9B4","#FFA600"))+
+  scale_x_discrete(labels=c("Algae_Turf" = "Turf Algae", "Algae_Other" = "Other Algae",
+                              "Algae_Encrusting" = "Encrusting Algae", "Algae_Kelp" = "Kelp Algae", "Sponge" = "Sponges", "Ascidian" = "Ascidians", "Coral" = "Corals"))+
+   theme_classic()+
+  theme(legend.position = "none", 
+                  legend.key.size = unit(0.2, 'cm'), #change legend key size
+               legend.title = element_text(size=8), #change legend title font size
+        legend.text = element_text(size=8))+
+  theme(axis.title.y = element_blank()) +
+            theme(axis.text = element_text(size = 8)) +
+     theme(axis.title.x = element_text(size = 9)) +  
+        ggtitle(expression(atop("Photoquadrats vs. Wide Photographs", atop(italic("<--- More Frequent in Photoquadrats - More Frequent in Wide Photos--->"), "")))) +
+       theme(plot.title=element_text(size=15, hjust=0.5, face="bold",  vjust=-1))+
+  coord_flip()
+
+```
+
+
+#Habitat by Taxa 
+```{r}
+diver_inc_mat <-  select(diver_inc_consol, Diver,  RelativePath, File,  Location, Date, Date2, Period, Type, Duplicate, Comment, Background, Unknown_Sub, Reason_Unk, Fish_Sub, Inverts_Sub, All_Sub, Sand, Algae_Encrusting, Algae_Turf,Algae_Kelp,   Algae_Other, Sponge, Ascidian, Coral) 
+
+diver_inc_mat_ex0 <-diver_inc_consol %>% filter(Background == "Yes/Good" | Background == "Ok/Partial") 
+
+diver_inc_mat_ex0 <- filter(diver_inc_mat_ex0, Algae_Encrusting != 0 | Algae_Other != 0| Algae_Kelp != 0| Algae_Turf != 0| Ascidian != 0|Sponge !=0 |  Coral!=0  )
+
+diver_inc_mat_tmp <- separate(
+  diver_inc_mat_ex0,
+  All_Sub,
+  into =c("Sub_1", "Sub_2"),
+  sep = ",",
+   fill = "right",
+  )
+
+diver_inc_mat_tmp <- diver_inc_mat_tmp %>% filter(is.na(Sub_2))
+
+diver_inc_mat_tmp <- separate(
+  diver_inc_mat_tmp,
+  Sub_1,
+  into =c("Scientific_Name", "Common_Name"),
+  sep = " - ",
+  fill = "right",
+  )
+
+diver_inc_mat_tmp <- separate(
+  diver_inc_mat_tmp,
+  Scientific_Name,
+  into =c("Scientific_Name", "extra names"),
+  sep = "/",
+   fill = "right",
+  )
+
+species <- as.list(unique(diver_inc_mat_tmp$Scientific_Name))
+
+
+species_DF<-as.data.frame(species)
+diver_inc_mat_tmp <- separate(diver_inc_mat_tmp, Scientific_Name, into = c("Genus", "species"), sep = " ")
+genus<-dput(as.character(unique(diver_inc_mat_tmp$Genus)))
+```
+
+
+```{r}
+WorMS_record_df <-read.csv(file="data/WorMS_records.csv")
+
+diver_inc_mat_WorMS <-left_join (diver_inc_mat_tmp, WorMS_record_df, by='Genus')
+
+
+#do fish and gastropods rather than chordates and molluscs
+diver_inc_mat_WorMS_class <-    filter(diver_inc_mat_WorMS, class=="Actinopteri"| class=="Elasmobranchii"|class=="Gastropoda")
+diver_inc_mat_WorMS_class$taxa<- diver_inc_mat_WorMS_class$class
+diver_inc_mat_WorMS_class$taxa<- gsub("Actinopteri", "Fish",diver_inc_mat_WorMS_class$taxa)
+  diver_inc_mat_WorMS_class$taxa<- gsub("Elasmobranchii", "Fish",diver_inc_mat_WorMS_class$taxa)
+   diver_inc_mat_WorMS_class$taxa<- gsub("Gastropoda", "Gastropod",diver_inc_mat_WorMS_class$taxa)
+ 
+   #Need to remove Shelly Beach as only has 56 gastropods spread over the 3 time periods
+diver_inc_mat_WorMS_class <-    filter(diver_inc_mat_WorMS_class, Location !="Shelly Beach")
+```
+
+
+
+
+#Figure 3b - Gastropod Photos vs. Fish Photos - Occurence Frequency Mean Difference
+```{r}
+taxa_av_mancalc <- diver_inc_mat_WorMS_class %>%
+select (5, 8, 23:29, 57)
+
+taxa_av_mancalc <- taxa_av_mancalc %>%
+  pivot_longer(c(3:9), names_to="Habitat", values_to="presence")
+
+taxa_av_mancalc <- taxa_av_mancalc %>%
+filter(Location !="Shelly Beach") %>%
+  group_by(Location, Period, taxa, Habitat) %>%
+  summarise("mean" = mean(presence)) #, "SE" = sd(presence)/sqrt(n())
+
+
+taxa_av_mancalc <- pivot_wider(taxa_av_mancalc, names_from = taxa,
+    values_from = mean)
+
+# mean of fitted values - across replicate periods
+
+
+taxa_av_mancalc$diff <- taxa_av_mancalc$Fish-taxa_av_mancalc$Gastropod
+
+taxa_av_mancalc <- taxa_av_mancalc %>%
+  group_by(Location,  Habitat) %>%
+  summarise(mean=mean(diff), SE =sd(diff)/(sqrt(n())))
+
+habitat_order_2 <- rename(habitat_order, "Habitat"=Taxa)
+taxa_av_mancalc <- left_join(taxa_av_mancalc, habitat_order_2)
+
+
+taxa_av_mancalc %>%
+   ggplot(aes(x=reorder(Habitat, order),mean, colour=Habitat, shape=Location)) + #, group=Period
+  geom_hline(yintercept = c(0), color = "grey70", linetype = 2) +  
+geom_point(position = position_dodge(0.6), size=2)+
+      xlab("Habitat Categories")+
+            ylab("Mean Difference")+
+  ylim(-.4, .43)+
+geom_errorbar(aes(ymin=mean-SE, ymax=mean+SE),position = position_dodge(0.6), width=.6)+
+scale_colour_manual(labels=c("Algae_Turf" = "Turf Algae", "Algae_Other" = "Other Algae", "Algae_Encrusting" = "Encrusting Algae", "Algae_Kelp" = "Kelp Algae", "Sponge" = "Sponges", "Ascidian" = "Ascidians", "Coral" = "Corals"), 
+                         values = c("#F0655B", "#C18A15","#306B34","#643C04", "#893168","#FFB9B4","#FFA600"))+
+scale_x_discrete(labels=c("Algae_Turf" = "Turf Algae", "Algae_Other" = "Other Algae",
+                              "Algae_Encrusting" = "Encrusting Algae", "Algae_Kelp" = "Kelp Algae", "Sponge" = "Sponges", "Ascidian" = "Ascidians", "Coral" = "Corals"))+
+  theme_classic()+
+                 theme(legend.position = "bottom", 
+                 legend.key.size = unit(0.2, 'cm'), #change legend key size
+               legend.title = element_text(size=8), #change legend title font size
+       legend.text = element_text(size=8))+
+             theme(axis.text = element_text(size = 8)) +
+  theme(axis.title.y = element_blank()) +
+     theme(axis.title.x = element_text(size = 9)) + 
+        ggtitle(expression(atop("Gastropod Photos vs. Fish Photos", atop(italic("<--- More Frequent in Gastropod Photos - More Frequent in Fish Photos--->"), "")))) +
+       theme(plot.title=element_text(size=15, hjust=0.5, face="bold",  vjust=-1))+
+guides(colour="none")+
+  coord_flip()
+        
+```
+
+#Supp Figure S4c - Photoquadrats vs. Fish Photos - Occurence Frequency Mean Difference
+```{r}
+
+
+diver_inc_mat_WorMS_Fish <-    filter(diver_inc_mat_WorMS, class=="Actinopteri"| class=="Elasmobranchii")
+
+diver_inc_mat_WorMS_Fish$Source <- "Photos"
+
+diver_inc_mat_WorMS_Fish_sel <- diver_inc_mat_WorMS_Fish %>% select(c(Location, Period, Source, Type, Algae_Encrusting:Coral))
+
+
+photo_survey_inc_Fish <- full_join(photoquads_consol_sel, diver_inc_mat_WorMS_Fish_sel)
+
+
+
+Fish_av_mancalc <- photo_survey_inc_Fish %>%
+select (2:12)
+
+Fish_av_mancalc <- Fish_av_mancalc %>%
+  pivot_longer(c(4:10), names_to="Habitat", values_to="presence")
+
+Fish_av_mancalc <- Fish_av_mancalc %>%
+  group_by(Location, Source, Period, Habitat) %>%
+  summarise("mean" = mean(presence)) #, "SE" = sd(presence)/sqrt(n())
+
+
+Fish_av_mancalc <- pivot_wider(Fish_av_mancalc, names_from = Source,
+    values_from = mean)
+
+
+Fish_av_mancalc$diff <- Fish_av_mancalc$Photos-Fish_av_mancalc$Surveys
+
+Fish_av_mancalc <- Fish_av_mancalc %>%
+  group_by(Location,  Habitat) %>%
+  summarise(mean=mean(diff), SE =sd(diff)/(sqrt(n())))
+
+Fish_av_mancalc <- left_join(Fish_av_mancalc, habitat_order_2)
+
+  
+Fish_av_mancalc %>%
+    ggplot(aes(x=reorder(Habitat, order),mean, colour=Habitat, shape=Location)) + #, group=Period
+ geom_hline(yintercept = c(0), color = "grey70", linetype = 2) +  
+ geom_point(position = position_dodge(0.6), size=2)+
+      xlab("Habitat Categories")+
+            ylab("Mean Difference")+
+  ylim(-.4, .43)+
+geom_errorbar(aes(ymin=mean-SE, ymax=mean+SE),position = position_dodge(0.6), width=.6)+
+scale_colour_manual(labels=c("Algae_Turf" = "Turf Algae", "Algae_Other" = "Other Algae", "Algae_Encrusting" = "Encrusting Algae", "Algae_Kelp" = "Kelp Algae", "Sponge" = "Sponges", "Ascidian" = "Ascidians", "Coral" = "Corals"),     values = c("#F0655B", "#C18A15","#306B34","#643C04", "#893168","#FFB9B4","#FFA600"))+
+  scale_x_discrete(labels=c("Algae_Turf" = "Turf Algae", "Algae_Other" = "Other Algae",
+                              "Algae_Encrusting" = "Encrusting Algae", "Algae_Kelp" = "Kelp Algae", "Sponge" = "Sponges", "Ascidian" = "Ascidians", "Coral" = "Corals"))+
+  theme_classic()+
+                   theme(legend.position = "none", 
+                  legend.key.size = unit(0.2, 'cm'), #change legend key size
+               legend.title = element_text(size=8), #change legend title font size
+        legend.text = element_text(size=8))+
+             theme(axis.text = element_text(size = 8)) +
+  theme(axis.title.y = element_blank()) +
+     theme(axis.title.x = element_text(size = 9)) + 
+        ggtitle(expression(atop("Photoquadrats vs. Fish Photos", atop(italic("<--- More Frequent in Photoquadrats - More Frequent in Fish Photos--->"), "")))) +
+       theme(plot.title=element_text(size=15, hjust=0.5, face="bold",  vjust=-1))+
+      coord_flip()
+
+```
+
+#Figure 4: number of photographs -  bootstrapping error
+
+```{r}
+ diver_inc_consol_5grps <- diver_inc_consol_sel
+
+
+diver_inc_consol_5grps$randgrp <-  sample(5, size = nrow(diver_inc_consol_5grps), replace = TRUE)
+
+
+test_manyglm_fit_frm <- expand_grid(Location=c("Bare Is", "Shelly Beach", "Kurnell")) #outside function - run once only...
+
+sample_sizes <- seq(10,180, by=10)
+reps <- c(1:5)
+
+diver_inc_boot <- function(n_samp, rep, data) {
+test  <-  data %>% #
+    group_by(Location)%>%
+ filter(randgrp == rep)%>% 
+  slice_sample(n=n_samp) 
+
+test_mvabund <-  mvabund(test[3:9])
+
+test_manyglm <- manyglm(test_mvabund~Location, data=test, family=binomial("cloglog"))
+
+test_manyglm_fit_tmp<-predict.manyglm(test_manyglm, newdata=test_manyglm_fit_frm, type="response", se.fit=TRUE)
+
+test_manyglm_fit <- cbind(test_manyglm_fit_frm, test_manyglm_fit_tmp)
+
+rm(test_manyglm_fit_tmp)
+
+test_manyglm_fit
+
+} 
+
+
+
+boot_fit <- data.frame()
+test_manyglm_fit<- data.frame()
+
+for (rep in reps)for (samp in sample_sizes) {
+sample <- diver_inc_boot(samp, rep,    diver_inc_consol_5grps)
+  
+  sample$samps <- samp
+ 
+  boot_fit <-  rbind(boot_fit,sample )
+}
+
+
+boot_fit_long <- pivot_longer(boot_fit[c(1:8,16)], cols= c(fit.Algae_Encrusting:fit.Coral), names_to = "Taxa", values_to = "Fit")
+
+boot_fit_long$Taxa <- gsub("fit.", "",boot_fit_long$Taxa) 
+
+
+
+boot_SE_long <- rename(boot_fit,"SE.Algae_Encrusting"="se.fit.1", "SE.Algae_Turf"="se.fit.2", "SE.Algae_Kelp"="se.fit.3", "SE.Algae_Other"="se.fit.4" , "SE.Sponge"="se.fit.5", "SE.Ascidian"="se.fit.6", "SE.Coral"="se.fit.7")
+
+boot_SE_long <- pivot_longer(boot_SE_long[c(1, 9:16)], cols= c(SE.Algae_Encrusting:SE.Coral), names_to = "Taxa", values_to = "SE")
+
+boot_SE_long$Taxa <- gsub("SE.", "",boot_SE_long$Taxa) 
+
+fit_SE_av <-boot_SE_long %>% group_by(Location, samps, Taxa) %>%
+             summarise(Av_error = mean(SE, na.rm = TRUE), SE = sd(SE)/sqrt(5))
+ 
+fit_SE_av$Taxa <- gsub( "Algae_Turf", "a) Turf Algae",fit_SE_av$Taxa )
+fit_SE_av$Taxa <- gsub( "Algae_Encrusting", "b) Encrusting Algae",fit_SE_av$Taxa )
+fit_SE_av$Taxa <- gsub( "Algae_Other", "c) Other Algae",fit_SE_av$Taxa )
+fit_SE_av$Taxa <- gsub( "Algae_Kelp", "d) Kelp Algae",fit_SE_av$Taxa )
+
+fit_SE_av$Taxa <- gsub( "Sponge", "e) Sponges",fit_SE_av$Taxa )
+fit_SE_av$Taxa <- gsub( "Ascidian", "f) Ascidians",fit_SE_av$Taxa )
+fit_SE_av$Taxa <- gsub( "Coral", "g) Corals",fit_SE_av$Taxa )
+
+#facet SE by taxa
+ggplot(fit_SE_av, aes(samps,Av_error,color=Location, shape=Location)) +
+  geom_point(size=2)+
+       geom_line(stat = 'identity')+
+  geom_errorbar(aes(ymin=Av_error-SE, ymax=Av_error+SE), width=.1) +
+    facet_wrap(~factor(Taxa,levels=c('a) Turf Algae','b) Encrusting Algae','c) Other Algae','d) Kelp Algae', 'e) Sponges','f) Ascidians','g) Corals')), ncol = 2, scales="free")+ 
+        scale_colour_manual(values=c("#EF6461", "#3C7A89", "#966D81"))+ 
+  # theme_classic()+ 
+   theme_tufte(base_family = "") + 
+  theme(axis.line=element_line()) + 
+  theme(strip.text = element_text(face="bold", hjust=0.03, margin=margin(l=0, b=1))) + 
+scale_x_continuous(name="Number of Photographs", breaks=seq(0,250, by=50))+
+  theme(legend.position = c(0.75, 0.1), 
+                  legend.key.size = unit(0.4, 'cm'), #change legend key size
+               legend.title = element_text(size=9), #change legend title font size
+        legend.text = element_text(size=9))+
+          theme(axis.text = element_text(size = 8)) +
+     theme(axis.title = element_text(size = 9)) + 
+  theme(panel.grid = element_line(colour = "NA"))+
+    ylab("Average Error of Model Runs")
+
+```
+
+
+#Supp Figure S5: Number of divers - Bootstrapping error
+
+## #'d out as slow to run. Remove #'s in front of ''' to run
+
+#```{r}
+
+  # install.packages('RcppAlgos')  
+     library(RcppAlgos)
+
+
+#diver combinations function
+
+       combs_function <- function(n_divers, site){
+      
+  rand30_combs_test <-    as.data.frame(comboSample(unique(site$Diver), m=n_divers, n=length(unique(site$Diver)), seed=42, nThreads = 4))
+  rand30_combs_test
+                    
+       }
+       
+   #average habitat function
+       
+       hab_av_func <- function(n_samps, site){
+comb_tmp <- as.data.frame(all_combs_long[,n_samps]) #need 1 to iterate through all combinations - n_combs
+colnames(comb_tmp)[1] <- 'Diver'
+
+hab_data_samp<-left_join(comb_tmp,site )
+
+comb_tmp <- comb_tmp %>% drop_na()
+
+hab_data_samp$n_divers <- length(unique(comb_tmp$Diver))
+
+hab_data_samp <- hab_data_samp %>% drop_na(Location)
+
+hab_data_sum <- hab_data_samp %>%
+  group_by(Location, n_divers)%>%
+summarise(Algae_Encrusting = sum(Algae_Encrusting)/n(), Algae_Turf= sum(Algae_Turf)/n(), Algae_Kelp= sum(Algae_Kelp)/n(), Algae_Other= sum(Algae_Other)/n(), Sponge= sum(Sponge)/n(), Ascidian= sum(Ascidian)/n(), Coral= sum(Coral)/n())
+
+hab_data_sum
+ 
+       }
+       
+      #calculations for bare Island 
+       
+bare_is <- diver_inc_consol%>%
+  filter(Location=="Bare Is") #need to iterate through sites
+ 
+      n_divers_str <- c((length(unique(bare_is$Diver))-1):1)
+      all_combs <- as.data.frame( comboSample(unique(bare_is$Diver), m=length(unique(bare_is$Diver)), n=1, seed=42, nThreads = 4))
+      
+       for (n in n_divers_str) {
+comb_tmp <- combs_function(n,    bare_is)
+  
+all_combs <-bind_rows(all_combs,comb_tmp) 
+
+}
+
+       
+       
+  all_combs_long <- t(all_combs)     
+
+
+n_combs <- c(1:ncol(all_combs_long))
+
+
+
+hab_data_bare <- data.frame()
+
+for (n in n_combs){
+hab_data_sum <-hab_av_func(n, bare_is)
+
+   hab_data_bare <- rbind(hab_data_bare,hab_data_sum)
+
+
+}
+#repeat for shelly beach
+
+shelly <- diver_inc_consol%>%
+  filter(Location=="Shelly Beach") #need to iterate through sites
+ 
+      n_divers_str <- c((length(unique(shelly$Diver))-1):1)
+
+            all_combs <- as.data.frame(comboSample(unique(shelly$Diver), m=length(unique(shelly$Diver)), n=1, seed=42, nThreads = 4))
+
+         for (n in n_divers_str) {
+comb_tmp <- combs_function(n,    shelly)
+  
+all_combs <-bind_rows(all_combs,comb_tmp) 
+
+}
+
+      
+  all_combs_long <- t(all_combs)     
+
+n_combs <- c(1:ncol(all_combs_long))
+
+
+hab_data_shelly <- data.frame()
+
+for (n in n_combs){
+hab_data_sum <-hab_av_func(n, shelly)
+
+   hab_data_shelly <- rbind(hab_data_shelly,hab_data_sum)
+
+}
+
+#repeat for Kurnell
+
+kurnell <- diver_inc_consol%>%
+  filter(Location=="Kurnell") #need to iterate through sites
+ 
+      n_divers_str <- c((length(unique(kurnell$Diver))-1):1)
+
+            all_combs <- as.data.frame(comboSample(unique(kurnell$Diver), m=length(unique(kurnell$Diver)), n=1, seed=42, nThreads = 4))
+
+   
+       
+       for (n in n_divers_str) {
+comb_tmp <- combs_function(n,    kurnell)
+  
+all_combs <-bind_rows(all_combs,comb_tmp) 
+
+}
+
+      
+  all_combs_long <- t(all_combs)     
+
+n_combs <- c(1:ncol(all_combs_long))
+
+
+hab_data_kurnell <- data.frame()
+
+for (n in n_combs){
+hab_data_sum <-hab_av_func(n, kurnell)
+
+   hab_data_kurnell <- rbind(hab_data_kurnell,hab_data_sum)
+
+}
+
+hab_data_n_diver <- rbind(hab_data_bare, hab_data_kurnell, hab_data_shelly)
+
+
+hab_data_df_long <- hab_data_n_diver
+hab_data_df_long$rep <- c(1:nrow(hab_data_df_long))
+hab_data_df_long <-  pivot_longer(hab_data_df_long, c(Algae_Encrusting:Coral), names_to = 'Taxa', values_to = 'av_occ')
+
+dodge <- position_dodge(width=0.3)
+
+
+
+hab_data_df_long_error <- hab_data_df_long %>% 
+  group_by(Location, n_divers, Taxa) %>%
+             summarise(SE = sd(av_occ)/sqrt(n()))
+
+hab_data_df_long_error$Taxa <- gsub( "Algae_Turf", "a) Turf Algae",hab_data_df_long_error$Taxa )
+hab_data_df_long_error$Taxa <- gsub( "Algae_Encrusting", "b) Encrusting Algae",hab_data_df_long_error$Taxa )
+hab_data_df_long_error$Taxa <- gsub( "Algae_Other", "c) Other Algae",hab_data_df_long_error$Taxa )
+hab_data_df_long_error$Taxa <- gsub( "Algae_Kelp", "d) Kelp Algae",hab_data_df_long_error$Taxa )
+hab_data_df_long_error$Taxa<- gsub( "Sponge", "e) Sponges",hab_data_df_long_error$Taxa )
+hab_data_df_long_error$Taxa<- gsub( "Ascidian", "f) Ascidians",hab_data_df_long_error$Taxa )
+hab_data_df_long_error$Taxa<- gsub( "Coral", "g) Corals",hab_data_df_long_error$Taxa )
+
+
+ggplot(hab_data_df_long_error, aes(n_divers,SE,color=Location, shape=Location, group=Location)) +
+  geom_point(size=2, position = dodge)+
+       geom_line(stat = 'identity')+
+ facet_wrap(~factor(Taxa,levels=c('a) Turf Algae','b) Encrusting Algae','c) Other Algae','d) Kelp Algae', 'e) Sponges','f) Ascidians','g) Corals')), ncol = 2, scales="free")+ 
+        scale_colour_manual(values=c("#EF6461", "#3C7A89", "#966D81"))+ 
+     theme_tufte(base_family = "") + 
+  theme(axis.line=element_line()) + 
+  theme(strip.text = element_text(face="bold", hjust=0.03, margin=margin(l=0, b=1))) + 
+  theme(legend.position = c(0.75, 0.1), 
+                  legend.key.size = unit(0.4, 'cm'), #change legend key size
+               legend.title = element_text(size=9), #change legend title font size
+        legend.text = element_text(size=9))+
+          theme(axis.text = element_text(size = 8)) +
+     theme(axis.title = element_text(size = 9)) + 
+  theme(panel.grid = element_line(colour = "NA"))+
+  scale_x_continuous(name="Number of Divers", breaks=seq(0,30, by=10))+
+  ylab("Average Error of Model Runs")
+
+#```
+
+##Multivariate abundance tests - #'d out as slow to run. Remove #'s in front of ''' to run
+
+#Photographs vs Photoquadrats mvabund - all data
+#```{r}
+Pho_Sur_Inc_mvabund <-  mvabund(photo_survey_inc_PA_allreps[5:11])
+
+
+Pho_Sur_Inc_manyglm_LS <- manyglm(Pho_Sur_Inc_mvabund~Location*Source, data=photo_survey_inc_PA_allreps, family=binomial("cloglog"))
+Pho_Sur_Inc_ANOVA_test_LS <- anova(Pho_Sur_Inc_manyglm_LS,  nBoot=1000, test="LR", cor.type = "I", p.uni="adjusted")
+Pho_Sur_Inc_ANOVA_test_LS
+
+#```
+
+#Close Photographs vs Wide Photographs mvabund
+#```{r}
+habitat_Style_mvabund <-  mvabund(diver_inc_consol_type[4:10])
+
+
+habitat_Style_manyglm <- manyglm(habitat_Style_mvabund~Location*Type, data=diver_inc_consol_type, family=binomial(link = "cloglog"))
+
+### hash out to avoid running  - 30min runtime
+habitat_Style_ANOVA <- anova(habitat_Style_manyglm,  nBoot=1000, test="LR", cor.type = "I", pairwise.comp=~diver_inc_consol_type$Location*Type, p.uni="adjusted")
+
+habitat_Style_ANOVA
+#```
+
+#Close-up Photographs vs Photoquadrats mvabund
+#```{r}
+Pho_Sur_Inc_mvabund_Macro <-  mvabund(photo_survey_inc_PA_Macro[5:11])
+
+
+Pho_Sur_Inc_manyglm_Macro_LS <- manyglm(Pho_Sur_Inc_mvabund_Macro~Location*Source, data=photo_survey_inc_PA_Macro, family=binomial("cloglog"))
+
+Pho_Sur_Inc_ANOVA_test_Macro_LS <- anova(Pho_Sur_Inc_manyglm_Macro_LS,  nBoot=1000, test="LR", cor.type = "I", p.uni="adjusted")
+
+Pho_Sur_Inc_ANOVA_test_Macro_LS
+
+#```
+
+#Wide-angle Photographs vs Photoquadrats mvabund
+#```{r}
+Pho_Sur_Inc_mvabund_Wide <-  mvabund(photo_survey_inc_PA_Wide[5:11])
+
+
+Pho_Sur_Inc_manyglm_Wide_LS <- manyglm(Pho_Sur_Inc_mvabund_Wide~Location*Source, data=photo_survey_inc_PA_Wide, family=binomial("cloglog"))
+
+Pho_Sur_Inc_ANOVA_test_Wide_LS  <- anova(Pho_Sur_Inc_manyglm_Wide_LS ,  nBoot=1000, test="LR", cor.type = "I", p.uni="adjusted")
+
+Pho_Sur_Inc_ANOVA_test_Wide_LS 
+
+#```
+
+#Fish photographs vs Gastropod photographs mvabund
+#```{r}
+habitat_byclass_mvabund <-  mvabund(diver_inc_mat_WorMS_class[22:28])
+
+
+habitat_byclass_manyglm <- manyglm(habitat_byclass_mvabund~Location*taxa, data=diver_inc_mat_WorMS_class, family=binomial(link = "cloglog"))
+
+habitat_byclass_ANOVA <- anova(habitat_byclass_manyglm,  nBoot=1000, test="LR", cor.type = "I", pairwise.comp=~diver_inc_mat_WorMS_class$Location*taxa, p.uni="adjusted")
+
+
+habitat_byclass_ANOVA
+
+#```
+
+#Fish photographs vs photoquadrats mvabund
+#```{r}
+Pho_Sur_Inc_mvabund_Fish <-  mvabund(photo_survey_inc_Fish[5:11])
+
+Pho_Sur_Inc_manyglm_Fish_LS <- manyglm(Pho_Sur_Inc_mvabund_Fish~Location*Source, data=photo_survey_inc_Fish, family=binomial("cloglog"))
+
+Pho_Sur_Inc_ANOVA_Fish <- anova(Pho_Sur_Inc_manyglm_Fish_LS,  nBoot=1000, test="LR", cor.type = "I", p.uni="adjusted")
+
+Pho_Sur_Inc_ANOVA_Fish
+
+#```
